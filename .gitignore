@@ -1,0 +1,40 @@
+# Local datasets and generated pipeline output
+/data/
+/outputs/
+/artifacts/
+foody_*_dataset.json
+reviews_clean.csv
+
+# Docker bind mounts: database and object-storage data
+/docker/db/pg_data/
+/docker/minio_data/
+
+# Local secrets (keep sanitized examples versioned)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Python bytecode, virtual environments, and tool caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# Notebook checkpoints and runtime logs
+.ipynb_checkpoints/
+/logs/
+*.log
+
+# Operating-system temporary files
+.DS_Store
+Thumbs.db
+*.tmp
