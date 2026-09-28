@@ -1,0 +1,8 @@
+{
+  "engine": "sqlite",
+  "processed_root": "data/processed",
+  "latest_pointer": "latest.json",
+  "database_filename": "reviews.sqlite",
+  "connection_mode": "read_only_for_analysis",
+  "note": "Resolve runs/<run_id>/reviews.sqlite beneath processed_root using latest.json. Paths are relative to the project root; SQLite is part of Python's standard library."
+}

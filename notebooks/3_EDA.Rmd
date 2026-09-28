@@ -1,0 +1,46 @@
+---
+title: "Foody / Google Maps: kiểm tra dữ liệu qua SQL"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+library(DBI)
+library(RSQLite)
+library(jsonlite)
+library(ggplot2)
+candidates <- c("../data/processed", "data/processed")
+available <- candidates[file.exists(file.path(candidates, "latest.json"))]
+if (length(available) == 0) stop("Chạy cleaner.py trước, mở RMarkdown từ project/notebooks.")
+processed <- available[[1]]
+pointer <- fromJSON(file.path(processed, "latest.json"))
+if (!grepl("^[a-zA-Z0-9]+$", pointer$run_id)) stop("Invalid run_id")
+snapshot <- file.path(processed, "runs", pointer$run_id)
+con <- dbConnect(SQLite(), file.path(snapshot, "reviews.sqlite"), flags=SQLITE_RO)
+```
+
+Grain là một review sau loại ID trùng. Các biểu đồ chỉ mô tả dữ liệu đã crawl. Rating hai nguồn khác thang điểm; số review không phải số lượt khách. Snapshot được dùng: `r pointer$run_id`.
+
+```{r sql}
+coverage <- dbGetQuery(con, "SELECT source, COUNT(*) AS reviews, SUM(training_eligible) AS usable_text, SUM(city IS NULL) AS missing_city, SUM(published_at IS NULL) AS missing_date FROM reviews GROUP BY source")
+rating <- dbGetQuery(con, "SELECT source, rating, rating_scale FROM reviews WHERE rating IS NOT NULL")
+knitr::kable(coverage)
+```
+
+```{r coverage-plot, fig.width=7, fig.height=4}
+ggplot(coverage, aes(x=source, y=reviews)) +
+  geom_col(fill="#245b83") + geom_text(aes(label=reviews), vjust=-0.4) +
+  scale_y_continuous(expand=expansion(mult=c(0, 0.12))) + theme_minimal() +
+  labs(title="Review theo nguồn trong snapshot", x="Nguồn", y="Số review")
+```
+
+```{r rating-plot, fig.width=9, fig.height=4}
+ggplot(rating, aes(x=rating)) + geom_histogram(binwidth=1, boundary=0.5, fill="#41a39b", color="white") +
+  facet_wrap(~source, scales="free_x") + theme_minimal() +
+  labs(title="Rating ở thang điểm gốc, tách riêng nguồn", x="Rating", y="Số review")
+```
+
+```{r close}
+dbDisconnect(con)
+```
+
+Chưa kết luận chất lượng sentiment hoặc xu hướng thời gian từ các biểu đồ này. Cần nhãn người cho đánh giá model và ngày đăng đáng tin cậy cho phân tích tháng. RMarkdown chưa được chạy trong môi trường rà soát vì chưa có R; dùng RStudio Knit sau khi cài các package ở cell setup.

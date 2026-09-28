@@ -1,0 +1,9 @@
+# Host environment: browser crawling plus storage/ML. Python 3.11 recommended.
+# Major-version bounds are compatibility constraints, not an audited lockfile.
+selenium>=4,<5
+undetected-chromedriver>=3,<4
+# undetected-chromedriver imports distutils; setuptools supplies it on Python 3.12+.
+setuptools>=68
+minio>=7,<8
+scikit-learn>=1,<2
+joblib>=1,<2

@@ -1,0 +1,28 @@
+{
+  "installed_at": "2026-09-22T20:08:30.958787+00:00",
+  "backup": "D:\\Code\\For Learning\\Studing\\ADY\\ADY201m_Group4_Sentiment-Analysis\\.audit-backups\\20260922T200830708228Z",
+  "changed_files": [
+    "src/ingestion/gmap_pipeline.py",
+    "src/ingestion/main.py",
+    "src/modeling/README.md",
+    "src/modeling/model.py",
+    "src/processing/DATA_DICTIONARY.md",
+    "src/processing/README.md",
+    "src/processing/cleaner.py",
+    "src/processing/test_cleaner.py",
+    "src/storage/__init__.py",
+    "src/storage/lake.py",
+    "tests/test_ingestion_audit.py",
+    "tests/test_modeling.py",
+    "tests/test_storage.py",
+    "data/processed/latest.json"
+  ],
+  "backup_history": [
+    "D:\\Code\\For Learning\\Studing\\ADY\\ADY201m_Group4_Sentiment-Analysis\\.audit-backups\\20260922T195002217898Z",
+    "D:\\Code\\For Learning\\Studing\\ADY\\ADY201m_Group4_Sentiment-Analysis\\.audit-backups\\20260922T195053601773Z",
+    "D:\\Code\\For Learning\\Studing\\ADY\\ADY201m_Group4_Sentiment-Analysis\\.audit-backups\\20260922T200814804068Z",
+    "D:\\Code\\For Learning\\Studing\\ADY\\ADY201m_Group4_Sentiment-Analysis\\.audit-backups\\20260922T200830708228Z"
+  ],
+  "windows_direct_writes_with_backup": [],
+  "note": "Raw inputs unchanged. Original modified files are in backup; newly added files have no previous version."
+}

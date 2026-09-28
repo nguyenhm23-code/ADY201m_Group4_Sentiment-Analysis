@@ -1,0 +1,31 @@
+{
+  "target_restaurants": 1000,
+  "max_reviews_per_restaurant": 100,
+  "keywords": [
+    "quán ăn",
+    "nhà hàng",
+    "quán cà phê",
+    "quán hải sản"
+  ],
+  "areas": [
+    {
+      "name": "Bình Định",
+      "search_areas": [
+        "Quy Nhơn, Bình Định",
+        "An Nhơn, Bình Định",
+        "Hoài Nhơn, Bình Định"
+      ]
+    },
+    {
+      "name": "Hồ Chí Minh",
+      "search_areas": [
+        "Quận 1, Hồ Chí Minh",
+        "Quận 3, Hồ Chí Minh",
+        "Bình Thạnh, Hồ Chí Minh",
+        "Thủ Đức, Hồ Chí Minh"
+      ]
+    }
+  ],
+  "idle_seconds": 20,
+  "max_place_seconds": 300
+}

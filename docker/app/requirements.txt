@@ -1,0 +1,4 @@
+# Broad compatible major versions; freeze the resolved environment after integration testing.
+minio>=7,<8
+scikit-learn>=1,<2
+joblib>=1,<2

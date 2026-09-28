@@ -1,0 +1,27 @@
+{
+  "seed": 42,
+  "split_ratios": [
+    0.8,
+    0.1,
+    0.1
+  ],
+  "rating_scales": {
+    "foody": 10,
+    "gmap": 5
+  },
+  "weak_thresholds": {
+    "foody": {
+      "negative_max": 4,
+      "positive_min": 7
+    },
+    "gmap": {
+      "negative_max": 2,
+      "positive_min": 4
+    }
+  },
+  "near_duplicate_min_chars": 80,
+  "near_duplicate_similarity": 0.94,
+  "near_duplicate_max_candidates": 100,
+  "long_duplicate_min_chars": 40,
+  "restaurant_aliases": {}
+}

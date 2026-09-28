@@ -1,0 +1,11 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+data
+reports
+notebooks
+.audit-backups
+*.log
