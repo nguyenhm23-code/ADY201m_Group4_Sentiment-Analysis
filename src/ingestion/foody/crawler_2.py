@@ -13,7 +13,7 @@ PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile")
 CHECKPOINT_DIR = "checkpoints"
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-def get_restaurant_urls(category_url, target_count=300, profile_path=PROFILE_DIR):
+def get_restaurant_urls(category_url, target_count=500, profile_path=PROFILE_DIR):
     options = uc.ChromeOptions()
     # Truyền user_data_dir vào để lưu cookie/tài khoản sau khi đăng nhập
     driver = uc.Chrome(options=options, user_data_dir=profile_path, version_main=154) 
@@ -257,13 +257,11 @@ def scrape_foody_to_json(url, driver):
 
 if __name__ == "__main__":
     category_urls = [ 
+        "https://www.foody.vn/hue",
         "https://www.foody.vn/ho-chi-minh", 
-        "https://www.foody.vn/ha-noi", 
-        "https://www.foody.vn/can-tho",
         "https://www.foody.vn/khanh-hoa",
-        "https://www.foody.vn/vung-tau",
-        "https://www.foody.vn/hai-phong",
         "https://www.foody.vn/binh-thuan"
+        
     ]
 
     for category_url in category_urls:
@@ -281,7 +279,7 @@ if __name__ == "__main__":
             with open(links_file, 'r', encoding='utf-8') as f:
                 urls_to_scrape = [line.strip() for line in f if line.strip()]
         else:
-            urls_to_scrape = get_restaurant_urls(category_url, target_count=300, profile_path=PROFILE_DIR)
+            urls_to_scrape = get_restaurant_urls(category_url, target_count = 1000, profile_path=PROFILE_DIR)
             with open(links_file, 'w', encoding='utf-8') as f:
                 for u in urls_to_scrape:
                     f.write(f"{u}\n")

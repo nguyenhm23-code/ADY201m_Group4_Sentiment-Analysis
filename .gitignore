@@ -4,6 +4,7 @@
 /artifacts/
 foody_*_dataset.json
 reviews_clean.csv
+/src/ingestion/foody/extended/
 
 # Docker bind mounts: database and object-storage data
 /docker/db/pg_data/
@@ -12,8 +13,6 @@ reviews_clean.csv
 # Local secrets (keep sanitized examples versioned)
 .env
 .env.*
-!.env.example
-!.env.*.example
 
 # Python bytecode, virtual environments, and tool caches
 __pycache__/

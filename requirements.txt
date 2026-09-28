@@ -1,0 +1,7 @@
+pandas>=2.0,<3
+minio>=7.2,<8
+python-dotenv>=1.0,<2
+emoji>=2.0,<3
+psycopg2-binary>=2.9,<3
+selenium>=4.0,<5
+undetected-chromedriver>=3.5,<4

@@ -3,6 +3,7 @@ import re
 import hashlib
 from datetime import datetime, timezone
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 import pandas as pd
@@ -12,13 +13,13 @@ import emoji
 # ---------------------------------------------------------
 # 0. Cấu hình kết nối MinIO
 # ---------------------------------------------------------
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # 2. LOAD BIẾN MÔI TRƯỜNG TỪ FILE .env
 env_path = os.path.join(PROJECT_ROOT, '.env')
 load_dotenv(env_path)
 client = Minio(
-        "localhost:9000",
+        os.getenv("MINIO_ENDPOINT", "localhost:9000"),
         access_key=os.getenv("MINIO_ROOT_USER"),     # Tự động lấy từ .env
         secret_key=os.getenv("MINIO_ROOT_PASSWORD"), # Tự động lấy từ .env
         secure=False
@@ -29,7 +30,10 @@ client = Minio(
 # ---------------------------------------------------------
 def load_raw_records_from_minio(bucket: str) -> list[dict]:
     records = []
-    objects = client.list_objects(bucket, recursive=True)
+    objects = sorted(
+        client.list_objects(bucket, recursive=True),
+        key=lambda obj: (obj.last_modified, obj.object_name),
+    )
     for obj in objects:
         if not obj.object_name.endswith(".json"):
             continue
@@ -56,7 +60,8 @@ def split_shop_id(raw_id: str) -> tuple[int, str]:
     Điều chỉnh regex nếu format thực tế khác.
     """
     match = re.search(r"(\d+)$", raw_id)
-    shop_id = int(match.group(1)) if match else abs(hash(raw_id)) % (10**8)
+    # hash() thay đổi giữa các lần chạy; ID ổn định để upsert không tạo bản sao.
+    shop_id = int(match.group(1)) if match else int(hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:16], 16) % (10**8)
     shop_name = re.sub(r"-\d+$", "", raw_id)
     return shop_id, shop_name
 
@@ -114,6 +119,23 @@ def normalize_record(rec: dict) -> dict:
         "region": infer_region(rec.get("Thành Phố", "")),
         "user_name": rec.get("Tên User", ""),
         "rating": pd.to_numeric(rec.get("Điểm Đánh Giá"), errors="coerce"),
+        "review_photo_count": pd.to_numeric(rec.get("Số Ảnh Bình Luận"), errors="coerce"),
+        "shop_position_rating": pd.to_numeric(rec.get("Điểm Vị Trí"), errors="coerce"),
+        "shop_price_rating": pd.to_numeric(rec.get("Điểm Giá Cả"), errors="coerce"),
+        "shop_quality_rating": pd.to_numeric(rec.get("Điểm Chất Lượng"), errors="coerce"),
+        "shop_service_rating": pd.to_numeric(rec.get("Điểm Phục Vụ"), errors="coerce"),
+        "shop_atmosphere_rating": pd.to_numeric(rec.get("Điểm Không Gian"), errors="coerce"),
+        "shop_foody_avg_rating": pd.to_numeric(rec.get("Điểm Trung Bình Quán"), errors="coerce"),
+        "opening_time": rec.get("Giờ Mở Cửa"),
+        "closing_time": rec.get("Giờ Đóng Cửa"),
+        "min_price_vnd": pd.to_numeric(rec.get("Giá Thấp Nhất"), errors="coerce"),
+        "max_price_vnd": pd.to_numeric(rec.get("Giá Cao Nhất"), errors="coerce"),
+        "view_count": pd.to_numeric(rec.get("Lượt Xem"), errors="coerce"),
+        "shop_total_review_count": pd.to_numeric(rec.get("Tổng Số Bình Luận"), errors="coerce"),
+        "shop_excellent_review_count": pd.to_numeric(rec.get("Số Bình Luận Tuyệt Vời"), errors="coerce"),
+        "shop_good_review_count": pd.to_numeric(rec.get("Số Bình Luận Khá Tốt"), errors="coerce"),
+        "shop_average_review_count": pd.to_numeric(rec.get("Số Bình Luận Trung Bình"), errors="coerce"),
+        "shop_bad_review_count": pd.to_numeric(rec.get("Số Bình Luận Kém"), errors="coerce"),
         "device": rec.get("Thiết Bị", ""),
         "comment_datetime": comment_dt,
         "comment_hour": comment_dt.hour if pd.notna(comment_dt) else None,
@@ -136,12 +158,15 @@ def normalize_record(rec: dict) -> dict:
 # ---------------------------------------------------------
 def build_clean_dataframe(bucket) -> pd.DataFrame:
     raw_records = load_raw_records_from_minio(bucket)
+    if not raw_records:
+        return pd.DataFrame()
     normalized = [normalize_record(r) for r in raw_records]
     df = pd.DataFrame(normalized)
 
     # --- Loại bỏ duplicate dựa trên review_id ---
     before = len(df)
-    df = df.drop_duplicates(subset="review_id", keep="first")
+    # Bản cào mới có thêm trường quán/ảnh và được tải lên MinIO sau bản cũ.
+    df = df.drop_duplicates(subset="review_id", keep="last")
     print(f"Removed {before - len(df)} duplicate rows")
 
     # --- Tính num_reviews_by_user sau khi đã dedup ---
