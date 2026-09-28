@@ -29,7 +29,7 @@ python -m unittest discover -s src/processing -p test_cleaner.py -v
 - Giữ `text_raw` để truy vết; `text_clean` chuẩn hóa Unicode, khoảng trắng, HTML thông dụng; che mẫu email, URL, số điện thoại Việt Nam. Giữ dấu tiếng Việt, emoji, phủ định và dấu câu. Che mẫu không bảo đảm loại hết thông tin cá nhân trong văn bản; bản master/SQLite vẫn chứa text gốc, chỉ dùng nội bộ.
 - Review không có chữ/emoji hoặc là placeholder được giữ trong master nhưng loại khỏi tập huấn luyện văn bản. Review dài trùng hoàn toàn trong cùng quán chỉ giữ một mẫu cho huấn luyện.
 - Foody giữ thang 10, Maps giữ thang 5; không coi điểm trung bình quán là điểm từng review. `rating_fraction` chỉ là tỷ lệ điểm/thang, không chứng minh hai nền tảng có cùng phân bố đánh giá.
-- Thành phố lấy từ trường dữ liệu, URL Foody hoặc địa chỉ có tên thành phố đã biết. Không lấy tên file/khu vực tìm kiếm làm thành phố. Tên quán, thiết bị, thành phố thiếu giữ null.
+- Foody ưu tiên thành phố từ URL quán, gắn cờ khi khác trường dữ liệu; nguồn khác dùng trường dữ liệu hoặc địa chỉ có tên thành phố đã biết. Bỏ hậu tố mã bưu chính trước khi nhận diện tên thành phố. Không lấy tên file/khu vực tìm kiếm làm thành phố. Tên quán, thiết bị, thành phố thiếu giữ null.
 - `search_area` chuẩn hóa thành danh sách tên khu vực, nhận cả chuỗi lẫn danh sách từ crawler. Trường này không thay thế thành phố.
 - Ngày tương đối hoặc ngày chỉnh sửa không biến thành ngày đăng chính xác. Ngày dd/mm/yyyy không có giờ được đánh dấu `day`; giá trị 00:00 trong ISO chỉ để lưu trữ. Timestamp không có múi giờ giả định UTC+7 và gắn cờ; timestamp có múi giờ được đổi về UTC+7 để thống kê tháng nhất quán.
 - Bình luận dạng object/list, ID sai kiểu và JSON chứa số vô hạn bị từ chối; không chuyển object thành chuỗi để đưa vào training. Review chỉ chứa token che thông tin liên hệ được giữ ở master, loại khỏi training.
@@ -113,3 +113,6 @@ Lần kiểm tra raw ngày 23/09/2026: 211 dòng input → 209 review sau loại
 Bản kiểm tra 22/09 có 410 review và 41 quán. Số lượng giảm là do raw Foody hiện tại thiếu dữ liệu so với snapshot cũ; cleaner không giả lập bản ghi raw để bù lại. Bản cũ cần được giữ nguyên để truy vết/khôi phục có kiểm soát. Các số liệu trên là thời điểm kiểm tra, không phải cam kết cho các lần crawl sau.
 
 Module này phụ trách xử lý local → JSONL/SQLite. Hướng dẫn hạ tầng MinIO/Docker và tình trạng kiểm chứng toàn hệ thống nằm ở README gốc dự án. Chưa có nhãn người để đánh giá mô hình; EDA/nghiên cứu và kết quả hai model vẫn cần thực hiện trên dữ liệu phù hợp. Không commit raw/processed/annotations chứa dữ liệu lớn hoặc thông tin cá nhân; chỉ commit code/config/test và mẫu dữ liệu đã duyệt.
+
+
+Schema 1.2.0 bổ sung `foody.json` và `gmap.json`: mảng JSON chuẩn hóa theo từng nguồn, đã khử trùng ID. `excluded_training.jsonl` lưu các dòng không đủ tín hiệu văn bản hoặc bản sao dài cùng quán; các dòng này vẫn còn ở master để phân tích rating. `quality_report.json` có `row_reconciliation_ok` kiểm tra đầu vào = giữ lại + trùng ID + từ chối. Ngày tương đối, địa chỉ chưa xác định và câu giống nhau không tự động bị coi là bình luận bot.

@@ -1,4 +1,4 @@
-# Data dictionary — schema 1.1.0
+# Data dictionary — schema 1.2.0
 
 Grain: một phiên bản review được chọn theo ID nguồn + quán. Review không có nội dung vẫn ở master. Chuỗi thiếu thường là JSON null, không thay bằng “unknown” trong bản ghi. `reviews.jsonl` và `record_json` trong SQLite có cùng schema.
 

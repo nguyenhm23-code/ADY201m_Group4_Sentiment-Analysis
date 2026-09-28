@@ -16,10 +16,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 if __package__:
     from . import GGMap as gmap
-    from .ingestion_runtime import CrawlCancelled, check_cancelled, close_driver, pause
+    from .ingestion_runtime import CrawlCancelled, check_cancelled, close_driver, pause, resume_order
 else:
     import GGMap as gmap
-    from ingestion_runtime import CrawlCancelled, check_cancelled, close_driver, pause
+    from ingestion_runtime import CrawlCancelled, check_cancelled, close_driver, pause, resume_order
 
 LOG = logging.getLogger(__name__)
 
@@ -184,7 +184,10 @@ def _resume_done(item, output, limit):
     try:
         state = json.loads(status_path.read_text(encoding='utf-8'))
         if state.get('status') == 'no_reviews':
-            return item.get('status') == 'no_reviews'
+            # The per-place status may have been committed just before a crash
+            # prevented the queue from being updated.
+            item['status'] = 'no_reviews'
+            return True
         if state.get('status') != 'completed' or not output.exists():
             return False
         rows = json.loads(output.read_text(encoding='utf-8'))
@@ -286,12 +289,16 @@ def _run_pipeline(config, output_dir, browser, *, discover_only=False, crawl_onl
         gmap.write_json(queue_path, queue)
         return 1 if failures or shortfall else 0
     consecutive_failures = 0
-    for index, item in enumerate(selected, 1):
+    work = selected if refresh else resume_order(selected, queue.get('last_processed_id'))
+    skipped = 0
+    for index, item in enumerate(work, 1):
         check_cancelled(stop_event)
         output = gmap.output_for_url(item['url'], directory)
         if not refresh and _resume_done(item, output, limit):
             if item.get('status') != 'no_reviews':
                 item['status'] = 'completed'
+            skipped += 1
+            LOG.info('[%s/%s] Bỏ qua quán đã hoàn tất: %s', index, len(work), item['name'])
             continue
         LOG.info('[%s/%s] %s', index, len(selected), item['name'])
         item.update(status='running', attempts=item.get('attempts', 0) + 1)
@@ -321,13 +328,14 @@ def _run_pipeline(config, output_dir, browser, *, discover_only=False, crawl_onl
             consecutive_failures += 1
             LOG.error('Giữ tiến độ và chuyển quán tiếp theo: %s', exc)
         item['finished_at'] = now()
+        queue['last_processed_id'] = item['id']
         gmap.write_json(queue_path, queue)
         if consecutive_failures >= 3:
             LOG.error('Dừng sau 3 quán lỗi liên tiếp; kiểm tra diagnostics trước khi chạy lại.')
             break
     incomplete = sum(item.get('status') not in ('completed', 'no_reviews') for item in selected)
     shortfall = sum(max(0, quota - len(area_places(queue, area))) for area, quota in targets.items())
-    queue['last_run'].update(finished_at=now(), failures=len(failures), incomplete=incomplete,
+    queue['last_run'].update(finished_at=now(), failures=len(failures), incomplete=incomplete, skipped=skipped,
                              shortfall=shortfall,
                              status='partial' if failures or incomplete or shortfall else 'completed')
     gmap.write_json(queue_path, queue)

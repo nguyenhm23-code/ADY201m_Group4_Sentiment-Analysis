@@ -1,6 +1,7 @@
 """Offline regressions for persistence, area isolation, and bounded Maps batches."""
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -15,7 +16,70 @@ def foody_row(text, rating='8'):
             'Ngày Giờ': '01/09/2026 10:00', 'Bình Luận': text, 'Điểm Đánh Giá': rating}
 
 
+def foody_state(count=1, *, bottom=True, height=1000):
+    return {'count': count, 'ready': count, 'height': height, 'top': 500,
+            'viewport': 500, 'bottom': bottom, 'loading': False}
+
+
 class IngestionAuditTests(unittest.TestCase):
+    def test_foody_reads_reviews_loaded_after_delayed_scroll(self):
+        driver = MagicMock()
+        first, second = MagicMock(), MagicMock()
+        for card, text in ((first, 'First review'), (second, 'Lazy-loaded review')):
+            card.find_element.return_value = MagicMock(
+                text=text, get_attribute=MagicMock(return_value=text))
+        scrolls = 0
+
+        def execute(script):
+            nonlocal scrolls
+            if 'window.scrollTo' in script:
+                scrolls += 1
+            return 1000
+
+        def elements(by, selector):
+            if selector == 'li.review-item':
+                return [first, second] if scrolls >= 2 else [first]
+            return []
+
+        driver.execute_script.side_effect = execute
+        driver.find_elements.side_effect = elements
+        url = 'https://www.foody.vn/da-nang/test'
+        with patch.object(crawler, 'pause'), patch.object(crawler, 'foody_review_state',
+                side_effect=lambda _: foody_state(2 if scrolls >= 2 else 1)):
+            rows = crawler.scrape_foody_to_json(url, driver)
+        driver.get.assert_called_once_with(url + '/binh-luan')
+        self.assertEqual([row['Bình Luận'] for row in rows], ['First review', 'Lazy-loaded review'])
+        self.assertTrue(all(row['URL Quán'] == url for row in rows))
+        self.assertLess(scrolls, 100)
+
+    def test_foody_growing_page_has_a_scroll_limit(self):
+        driver = MagicMock()
+        driver.find_elements.return_value = []
+        height = 1000
+
+        def execute(script):
+            nonlocal height
+            if 'window.scrollTo' in script:
+                height += 1000
+            return height
+
+        driver.execute_script.side_effect = execute
+        with patch.object(crawler, 'pause'), patch.object(crawler, 'foody_review_state',
+                side_effect=lambda _: foody_state(0, bottom=False, height=height)), \
+                self.assertLogs(crawler.LOG, level='WARNING'):
+            crawler.scroll_foody_reviews(driver, max_scrolls=5)
+        self.assertEqual(height, 6000)
+
+    def test_foody_scroll_can_be_cancelled_while_waiting(self):
+        driver = MagicMock()
+        driver.find_elements.return_value = []
+        driver.execute_script.return_value = 1000
+        stop = threading.Event()
+        with patch.object(crawler, 'pause', side_effect=lambda *args: stop.set()), \
+             patch.object(crawler, 'foody_review_state', return_value=foody_state()):
+            with self.assertRaises(crawler.CrawlCancelled):
+                crawler.scroll_foody_reviews(driver, stop_event=stop)
+
     def test_foody_rejects_cookie_dependent_homepage(self):
         with self.assertRaises(ValueError):
             crawler.category_city('https://www.foody.vn/')
@@ -163,25 +227,23 @@ class IngestionAuditTests(unittest.TestCase):
             self.assertEqual(output.read_text(encoding='utf-8'), '[123]')
             self.assertEqual(json.loads(output.with_suffix('.status.json').read_text(encoding='utf-8'))['status'], 'failed')
 
-    def test_maps_late_painted_cards_are_accepted_after_timeout(self):
+    def test_maps_late_full_panel_is_accepted_after_timeout(self):
         waiter = MagicMock()
-        waiter.until.side_effect = [True, gmap.TimeoutException()]
-        with patch.object(gmap, 'wait_review_access'), patch.object(gmap, 'review_tab', return_value=None), \
-             patch.object(gmap, 'more_reviews_button', return_value=None), \
+        waiter.until.side_effect = gmap.TimeoutException()
+        with patch.object(gmap, 'review_control', return_value=None), \
              patch.object(gmap, 'WebDriverWait', return_value=waiter), \
-             patch.object(gmap, 'cards', return_value=[MagicMock()]):
+             patch.object(gmap, 'review_panel_state', side_effect=[{'full': False, 'selected_tab': 'Reviews'}, {'full': False, 'selected_tab': 'Reviews'}, {'full': True}]):
             gmap.open_reviews(MagicMock())
-        self.assertEqual(waiter.until.call_count, 2)
+        self.assertEqual(waiter.until.call_count, 1)
 
     def test_maps_delayed_panel_retries_once(self):
         waiter = MagicMock()
-        waiter.until.side_effect = [True, gmap.TimeoutException(), True]
-        with patch.object(gmap, 'wait_review_access'), patch.object(gmap, 'review_tab', return_value=None), \
-             patch.object(gmap, 'more_reviews_button', return_value=None), \
+        waiter.until.side_effect = [gmap.TimeoutException(), True]
+        with patch.object(gmap, 'review_control', return_value=None), \
              patch.object(gmap, 'WebDriverWait', return_value=waiter), \
-             patch.object(gmap, 'cards', return_value=[]):
+             patch.object(gmap, 'review_panel_state', return_value={'full': False, 'selected_tab': 'Reviews'}):
             gmap.open_reviews(MagicMock())
-        self.assertEqual(waiter.until.call_count, 3)
+        self.assertEqual(waiter.until.call_count, 2)
 
     def test_maps_stable_bottom_exits_after_three_polls(self):
         card = MagicMock()
@@ -190,6 +252,7 @@ class IngestionAuditTests(unittest.TestCase):
         waiter.until.side_effect = gmap.TimeoutException()
         place = {'id': 'place', 'url': 'https://www.google.com/maps/place/Test/'}
         with patch.object(gmap, 'open_reviews'), patch.object(gmap, 'cards', return_value=[card]), \
+             patch.object(gmap, 'review_panel_state', return_value={'full': True}), \
              patch.object(gmap, 'read_card', return_value={'review_id': 'id', 'rating': 5, 'text': 'Ngon'}), \
              patch.object(gmap, 'scroll_reviews'), patch.object(gmap, 'WebDriverWait', return_value=waiter), \
              patch.object(gmap, 'review_scroll_state', return_value={'bottom': True, 'loading': False, 'height': 500}):

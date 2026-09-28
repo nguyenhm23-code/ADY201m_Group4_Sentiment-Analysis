@@ -46,6 +46,21 @@ def write_json(path, data):
             temporary.unlink(missing_ok=True)
 
 
+def resume_order(items, last_processed=None, *, key='id'):
+    """Resume interrupted work, then unvisited places, then retry older attempts.
+
+    The cursor rotates retries so an early partial/failed place cannot monopolize
+    every restart. Older queues without a cursor still prioritize new places.
+    """
+    items = list(items)
+    for index, item in enumerate(items):
+        if item[key] == last_processed:
+            items = items[index + 1:] + items[:index + 1]
+            break
+    priority = {'running': 0, 'interrupted': 0, 'pending': 1}
+    return sorted(items, key=lambda item: priority.get(item.get('status', 'pending'), 2))
+
+
 def close_driver(driver):
     if driver is not None:
         process = getattr(getattr(driver, 'service', None), 'process', None)

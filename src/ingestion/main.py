@@ -90,6 +90,8 @@ def main(argv=None):
     parser.add_argument('--gmap-profile-dir', type=Path,
                         help='Hồ sơ Maps riêng; không dùng hồ sơ Chrome đang mở.')
     parser.add_argument('--headless', action='store_true')
+    parser.add_argument('--refresh', action='store_true',
+                        help='Crawl lại cả quán đã xử lý của nguồn được chọn; vẫn giữ dữ liệu cũ.')
     parser.add_argument('--chrome-major', type=positive_int, help='Ghi đè phiên bản Chrome cho cả hai nguồn.')
     parser.add_argument('--preprocess', action='store_true',
                         help='Chuẩn hóa và xuất dataset sau khi cả hai crawler kết thúc.')
@@ -109,8 +111,9 @@ def main(argv=None):
             from crawler import run_foody
         report = run_foody(category_urls=args.foody_url, target_count=args.foody_target,
                           output_dir=output / 'foody', headless=args.headless,
-                          chrome_major=args.chrome_major, stop_event=stop_event)
-        return {'exit_code': 1 if report['errors'] or not report['reviews'] else 0, **report}
+                          chrome_major=args.chrome_major, stop_event=stop_event, refresh=args.refresh)
+        return {'exit_code': 1 if report['errors'] or report['incomplete'] or not (
+            report['reviews'] or report['skipped']) else 0, **report}
 
     def gmap():
         if __package__:
@@ -124,7 +127,7 @@ def main(argv=None):
             config['max_reviews_per_restaurant'] = args.gmap_max_reviews
         code = pipeline.run_pipeline(config, output / 'gmap', headless=args.headless,
             chrome_major=args.chrome_major, profile_dir=args.gmap_profile_dir or output / 'gmap' / '.chrome_profile',
-            stop_event=stop_event)
+            stop_event=stop_event, refresh=args.refresh)
         return {'exit_code': code, 'queue': str(output / 'gmap' / 'places_queue.json')}
 
     jobs = {}

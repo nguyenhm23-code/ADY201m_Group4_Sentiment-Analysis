@@ -1160,9 +1160,15 @@ def scrape_gmap_reviews(
 
     driver = browser
     owns_driver = browser is None
+    recovered = {}
 
     def checkpoint(rows):
         if rows:
+            # Refresh may stop before reaching historical cards. Keep those
+            # rows in every checkpoint, including when only a partial file exists.
+            merged = dict(recovered)
+            merged.update((row['ID Review'], row) for row in rows)
+            rows = list(merged.values())
             write_json(partial, rows)
 
             state.update(
@@ -1209,7 +1215,6 @@ def scrape_gmap_reviews(
             },
         )
 
-        recovered = {}
         for saved_path in (output, partial):
             if not saved_path.exists():
                 continue
