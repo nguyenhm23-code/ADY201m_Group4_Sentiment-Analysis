@@ -24,9 +24,13 @@ else:
     from browser_health import connection_broken
 
 LOG = logging.getLogger(__name__)
-DEFAULT_CATEGORIES = ['https://www.foody.vn/da-nang', 'https://www.foody.vn/ho-chi-minh',
-                      'https://www.foody.vn/ha-noi', 'https://www.foody.vn/can-tho',
-                      'https://www.foody.vn/lam-dong', 'https://www.foody.vn/hue']
+DEFAULT_CATEGORIES = ['https://www.foody.vn/da-nang', 'https://www.foody.vn/khanh-hoa',
+                      'https://www.foody.vn/ha-noi', 'https://www.foody.vn/gia-lai',
+                      'https://www.foody.vn/lam-dong', 'https://www.foody.vn/hue',
+                      'https://www.foody.vn/quang-ngai', 'https://www.foody.vn/quang-tri',
+                      'https://www.foody.vn/thanh-hoa', 'http://foody.vn/nghe-an',
+                      'https://www.foody.vn/ha-tinh', 'https://www.foody.vn/phu-yen',
+                      'https://www.foody.vn/dak-lak', 'https://www.foody.vn/dak-nong']
 
 def category_city(url):
     parsed = urlsplit(url)
