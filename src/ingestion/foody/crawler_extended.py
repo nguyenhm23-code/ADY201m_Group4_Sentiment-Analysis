@@ -25,7 +25,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "extended"
-DEFAULT_CITIES = ("ho-chi-minh", "can-tho", "vung-tau")
+DEFAULT_CITIES = ("ha-noi", "hai-phong", "quang-ninh", "bac-ninh")
 API_PAGE_SIZE = 10
 POINT_IDS = {
     "positionPointBar": "Điểm Vị Trí",
@@ -345,7 +345,7 @@ def main():
         ]
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()))
+    driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()), version_main=153)
     try:
         for city, urls in city_urls.items():
             log(f"\nBắt đầu cào {city}: {len(urls)} quán")

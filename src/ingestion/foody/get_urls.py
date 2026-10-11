@@ -19,7 +19,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 HERE = Path(__file__).resolve().parent
 CHECKPOINT_DIR = HERE / "extended" / "checkpoints"
-DEFAULT_CITIES = ("ho-chi-minh", "can-tho", "vung-tau")
+DEFAULT_CITIES = ("ha-noi", "hai-phong", "quang-ninh", "bac-ninh")
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -85,7 +85,7 @@ def get_restaurant_urls(driver, city, target_count):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cities", nargs="+", default=DEFAULT_CITIES)
-    parser.add_argument("--target-count", type=int, default=20)
+    parser.add_argument("--target-count", type=int, default=200)
     parser.add_argument("--profile-dir", type=Path, default=HERE / "chrome_profile")
     parser.add_argument("--fresh", action="store_true", help="Lấy lại URL dù đã có checkpoint")
     args = parser.parse_args()
@@ -102,7 +102,7 @@ def main():
                 continue
 
             if driver is None:
-                driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()))
+                driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()), version_main=153)
             urls = get_restaurant_urls(driver, city, args.target_count)
             links_file.write_text("\n".join(urls) + ("\n" if urls else ""), encoding="utf-8")
             print(f"Đã lưu {len(urls)} URL vào {links_file}")
