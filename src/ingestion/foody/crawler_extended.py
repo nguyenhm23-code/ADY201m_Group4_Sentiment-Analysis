@@ -353,12 +353,7 @@ def main(cities=DEFAULT_CITIES, profile_dir=PROFILE_DIR, fresh=FRESH_START):
         ]
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    uploader = MinioBatchUploader(
-        checkpoints / "minio_upload_state.json", process_batch=process_minio_batch,
-    )
-    uploader.add_records([])  # Thử lại lô đang chờ trước khi mở Chrome.
-    driver = uc.Chrome(user_data_dir=str(Path(profile_dir).resolve()),
-                       version_main=156)
+    driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()))
     try:
         for city, urls in city_urls.items():
             log(f"\nBắt đầu cào {city}: {len(urls)} quán")
