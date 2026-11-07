@@ -1,12 +1,13 @@
 """Cào thông tin quán và bình luận từ danh sách URL đã lưu.
 
 Chạy get_urls.py trước, sau đó chạy từ thư mục dự án:
-    python src/ingestion/foody/crawler_extended.py --cities hue --fresh
+    python src/ingestion/foody/crawler_extended.py
 
-Mỗi dòng JSON là một bình luận, kèm thông tin của quán tương ứng.
+Mỗi record là một bình luận, kèm thông tin của quán tương ứng.
+Tự upload mỗi 2.000 record lên MinIO, chạy pipeline rồi upsert DB; gửi phần dư khi hoàn tất.
+Thay đổi thành phố, Chrome profile và chế độ cào lại ở các hằng số bên dưới.
 """
 
-import argparse
 import json
 import random
 import re
@@ -24,8 +25,17 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 
 HERE = Path(__file__).resolve().parent
+PROJECT_ROOT = HERE.parents[2]
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.ingestion.minio_upload import BatchUploadError, MinioBatchUploader
+from src.ingestion.batch_pipeline import process_minio_batch
+
+
 DATA_DIR = HERE / "extended"
-DEFAULT_CITIES = ("ho-chi-minh", "can-tho", "vung-tau")
+DEFAULT_CITIES = ("can-tho",)
+PROFILE_DIR = HERE / "chrome_profile"
+FRESH_START = False
 API_PAGE_SIZE = 10
 POINT_IDS = {
     "positionPointBar": "Điểm Vị Trí",
@@ -237,7 +247,7 @@ def load_review_group(driver, res_id, excluded_ids, is_latest, has_picture):
     return reviews
 
 
-def collect_all_reviews(driver, context, city, shop_slug, shop_url, shop_info):
+def collect_all_reviews(driver, context, city, shop_slug, shop_url, shop_info, on_records=None):
     """Lấy nhiều nhóm/bộ lọc và bỏ bình luận trùng theo ID Foody."""
     expected = context.get("expected")
     expected = int(expected) if expected is not None else None
@@ -265,11 +275,15 @@ def collect_all_reviews(driver, context, city, shop_slug, shop_url, shop_info):
 
             excluded_ids.extend(new_ids)
             seen_in_mode.update(new_ids)
+            new_records = []
             for review_id in new_ids:
                 if review_id not in records:
                     records[review_id] = api_review_record(
                         group[review_id], city, shop_slug, shop_url, shop_info
                     )
+                    new_records.append(records[review_id])
+            if on_records and new_records:
+                on_records(new_records)
             log(f"    [API] {mode_name}, nhóm {group_number}: tổng {len(records)} bình luận")
             if expected is not None and len(records) >= expected:
                 break
@@ -277,7 +291,7 @@ def collect_all_reviews(driver, context, city, shop_slug, shop_url, shop_info):
     return list(records.values()), expected
 
 
-def scrape_shop(driver, url):
+def scrape_shop(driver, url, on_records=None):
     shop_url = url.split("?")[0].rstrip("/").split("/binh-luan")[0]
     parts = urlparse(shop_url).path.strip("/").split("/")
     if len(parts) != 2:
@@ -310,7 +324,7 @@ def scrape_shop(driver, url):
         raise RuntimeError("Không đọc được initDataReviews/ResId để phân trang API")
     log(f"  [Review] Foody hiển thị {context.get('expected') or '?'} bình luận; bắt đầu tải qua API")
     records, expected = collect_all_reviews(
-        driver, context, city, shop_slug, shop_url, shop_info
+        driver, context, city, shop_slug, shop_url, shop_info, on_records
     )
     log(f"  [Review] Hoàn tất quán: {len(records)} bình luận duy nhất")
     if expected is not None and len(records) < expected:
@@ -326,35 +340,36 @@ def write_json(path, records):
     temporary.replace(path)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cities", nargs="+", default=DEFAULT_CITIES)
-    parser.add_argument("--profile-dir", type=Path, default=HERE / "chrome_profile")
-    parser.add_argument("--fresh", action="store_true", help="Cào lại từ đầu và ghi lại JSON/checkpoint")
-    args = parser.parse_args()
-
+def main(cities=DEFAULT_CITIES, profile_dir=PROFILE_DIR, fresh=FRESH_START):
     checkpoints = DATA_DIR / "checkpoints"
     city_urls = {}
-    for city in args.cities:
+    for city in cities:
         links_file = checkpoints / f"foody_{city}_links.txt"
         if not links_file.exists():
-            parser.error(f"Chưa có {links_file}. Hãy chạy get_urls.py trước.")
+            raise FileNotFoundError(f"Chưa có {links_file}. Hãy chạy get_urls.py trước.")
         city_urls[city] = [
             line.strip() for line in links_file.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()))
+    uploader = MinioBatchUploader(
+        checkpoints / "minio_upload_state.json", process_batch=process_minio_batch,
+    )
+    uploader.add_records([])  # Thử lại lô đang chờ trước khi mở Chrome.
+    driver = uc.Chrome(user_data_dir=str(Path(profile_dir).resolve()),
+                       version_main=156)
     try:
         for city, urls in city_urls.items():
             log(f"\nBắt đầu cào {city}: {len(urls)} quán")
             progress_file = checkpoints / f"foody_{city}_progress_api_v2.txt"
             output_file = DATA_DIR / f"foody_{city}_dataset.json"
-            if args.fresh:
+            if fresh:
                 write_json(output_file, [])
                 progress_file.write_text("", encoding="utf-8")
             records = json.loads(output_file.read_text(encoding="utf-8")) if output_file.exists() else []
+            # Lần đầu dùng cơ chế tự động: gửi cả dữ liệu đã lưu từ crawler cũ.
+            uploader.add_records(records)
             completed = set(progress_file.read_text(encoding="utf-8").splitlines()) if progress_file.exists() else set()
             log(f"Đã cào {len(completed)}/{len(urls)} quán; JSON có {len(records)} bình luận")
 
@@ -364,7 +379,9 @@ def main():
                     continue
                 log(f"[{index}/{len(urls)}] Đang cào: {url}")
                 try:
-                    current, expected = scrape_shop(driver, url)
+                    current, expected = scrape_shop(driver, url, on_records=uploader.add_records)
+                except BatchUploadError:
+                    raise
                 except Exception as error:
                     log(f"  Cào thất bại, sẽ thử lại lần sau: {error}")
                     continue
@@ -388,6 +405,9 @@ def main():
                 log(f"  Nghỉ {pause:.1f} giây")
                 time.sleep(pause)
             log(f"Hoàn tất {city}: {len(completed)}/{len(urls)} quán, {len(records)} bình luận")
+        uploader.flush()
+        log(f"Đã hoàn tất {uploader.state['batch_count']} lô (kể cả các lần chạy trước); "
+            f"log chi tiết: {uploader.log_file}")
     finally:
         driver.quit()
 

@@ -7,11 +7,13 @@ import json
 import argparse
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 
 INPUT_DIR = Path(__file__).resolve().parent
-OUTPUT_FILE = INPUT_DIR.parents[2] / "data" / "raw" / "foody_merged_dataset.json"
+TODAY_FOLDER = date.today().strftime("%d-%m-%Y")
+OUTPUT_FILE = INPUT_DIR.parents[2] / "data" / "raw" / TODAY_FOLDER / "foody_merged_dataset.json"
 
 
 def merge_json_files(input_dir=INPUT_DIR, output_file=OUTPUT_FILE, source_pattern="*.json"):

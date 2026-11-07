@@ -5,6 +5,7 @@
 foody_*_dataset.json
 reviews_clean.csv
 /src/ingestion/foody/extended/
+/src/ingestion/foody/chrome_profile/
 
 # Docker bind mounts: database and object-storage data
 /docker/db/pg_data/

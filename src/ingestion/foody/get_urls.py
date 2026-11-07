@@ -19,7 +19,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 HERE = Path(__file__).resolve().parent
 CHECKPOINT_DIR = HERE / "extended" / "checkpoints"
-DEFAULT_CITIES = ("ho-chi-minh", "can-tho", "vung-tau")
+DEFAULT_CITIES = ("can-tho",)
 
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -102,7 +102,8 @@ def main():
                 continue
 
             if driver is None:
-                driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()))
+                driver = uc.Chrome(user_data_dir=str(args.profile_dir.resolve()),
+                                   version_main=156)
             urls = get_restaurant_urls(driver, city, args.target_count)
             links_file.write_text("\n".join(urls) + ("\n" if urls else ""), encoding="utf-8")
             print(f"Đã lưu {len(urls)} URL vào {links_file}")
