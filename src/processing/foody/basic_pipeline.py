@@ -1,17 +1,9 @@
-"""MinIO JSON -> clean pre-EDA source data matching shops/users/reviews.
-
-Run from the project root: python -m src.processing.foody.basic_pipeline.
-The database loader splits this frame into the three normalized tables.
-"""
-
-import json
 import os
 import re
+import json
+import hashlib
 import unicodedata
-import argparse
-import sys
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -19,159 +11,242 @@ import pandas as pd
 from dotenv import load_dotenv
 from minio import Minio
 
-# Support both python basic_pipeline.py and python -m src.processing.foody.basic_pipeline.
+# ---------------------------------------------------------
+# 0. CẤU HÌNH KẾT NỐI MINIO
+# ---------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(PROJECT_ROOT))
-from src.processing.foody.schema import FLAT_COLUMNS, NATURAL_KEY, RAW_FIELD_MAP, SHOP_COLUMNS
+env_path = PROJECT_ROOT / ".env"
+load_dotenv(env_path)
 
-load_dotenv(PROJECT_ROOT / ".env")
-VIETNAM_TIME = timezone(timedelta(hours=7))
-BIGINT_MIN, BIGINT_MAX = -(2**63), 2**63 - 1
+client = Minio(
+    os.getenv("MINIO_ENDPOINT", "localhost:9000"),
+    access_key=os.getenv("MINIO_ROOT_USER", "minioadmin"),
+    secret_key=os.getenv("MINIO_ROOT_PASSWORD", "minioadmin"),
+    secure=False,
+)
 
-
-def minio_client():
-    # Construct lazily: importing/testing normalization needs no MinIO connection.
-    return Minio(
-        os.getenv("MINIO_ENDPOINT", "localhost:9000"),
-        access_key=os.getenv("MINIO_ROOT_USER"),
-        secret_key=os.getenv("MINIO_ROOT_PASSWORD"),
-        secure=False,
-    )
-
-
+# ---------------------------------------------------------
+# 1. TẢI DỮ LIỆU JSON GỘP TỪ MINIO (HOẶC LOCAL DỰ PHÒNG)
+# ---------------------------------------------------------
 def load_raw_records_from_minio(bucket: str) -> list[dict]:
-    client = minio_client()
-    records = []
-    objects = sorted(
-        client.list_objects(bucket, recursive=True),
-        key=lambda obj: (obj.last_modified, obj.object_name),
+    target_object = "2026-10-22/foody_merged_dataset.json"
+    print(f"Đang đọc dữ liệu từ MinIO: {target_object}")
+
+    try:
+        response = client.get_object(bucket, target_object)
+        data = json.loads(response.read().decode("utf-8"))
+        response.close()
+        response.release_conn()
+
+        if isinstance(data, list):
+            return data
+        return [data]
+    except Exception as e:
+        print(f"Lỗi khi đọc file {target_object} từ MinIO: {e}")
+        local_backup = PROJECT_ROOT / "data" / "raw" / "foody_merged_dataset.json"
+        if local_backup.exists():
+            print(f"Đang dùng file dự phòng local tại: {local_backup}")
+            with open(local_backup, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else [data]
+        raise e
+
+# ---------------------------------------------------------
+# 2. CÁC HÀM XỬ LÝ & CHUẨN HÓA ĐẶC TRƯNG (FEATURES)
+# ---------------------------------------------------------
+def split_shop_id(raw_id: str) -> tuple[int, str]:
+    raw_str = str(raw_id)
+    match = re.search(r"(\d+)$", raw_str)
+    shop_id = (
+        int(match.group(1))
+        if match
+        else int(hashlib.sha256(raw_str.encode("utf-8")).hexdigest()[:16], 16) % (10**8)
     )
-    for obj in objects:
-        if not obj.object_name.lower().endswith(".json"):
+    shop_name = re.sub(r"-\d+$", "", raw_str)
+    return shop_id, shop_name
+
+def infer_platform(url: str) -> str:
+    url_str = str(url).lower()
+    if "foody" in url_str:
+        return "Foody"
+    if "shopeefood" in url_str:
+        return "ShopeeFood"
+    return "Foody"
+
+def count_emoji(text: str) -> int:
+    return sum(1 for ch in str(text) if ch in emoji.EMOJI_DATA)
+
+def make_review_id(rec: dict, shop_id: int, user_name: str, dt_str: str) -> str:
+    existing_id = rec.get("review_id") or rec.get("id")
+    if existing_id:
+        return str(existing_id)
+
+    comment = str(rec.get("Bình Luận") or rec.get("comment") or rec.get("comment_text") or "")[:50]
+    raw = f"{shop_id}_{user_name}_{dt_str}_{comment}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+def remove_vietnamese_accent(text: str) -> str:
+    """Loại bỏ dấu tiếng Việt (kể cả chữ Đ), chuyển về chữ thường và chuẩn hóa khoảng trắng"""
+    if not text:
+        return ""
+    # Chuyển đổi thủ công chữ Đ/đ vì unicode decomposing không tách được đ thành d + dấu
+    s = str(text).replace("Đ", "D").replace("đ", "d")
+    nfkd_form = unicodedata.normalize('NFKD', s)
+    only_ascii = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+    clean_str = only_ascii.lower().replace("-", " ").strip()
+    return " ".join(clean_str.split())
+
+def standardize_city_name(city: str) -> str:
+    """Quy đổi mọi biến thể về một mã slug chuẩn duy nhất"""
+    clean = remove_vietnamese_accent(city)
+    if not clean or clean == "unknown":
+        return "Unknown"
+
+    if any(k in clean for k in ["ho chi minh", "tp hcm", "hcm", "sai gon"]):
+        return "ho-chi-minh"
+    if any(k in clean for k in ["ha noi", "hanoi"]):
+        return "ha-noi"
+    if any(k in clean for k in ["da nang", "danang"]):
+        return "da-nang"
+    if any(k in clean for k in ["can tho", "cantho"]):
+        return "can-tho"
+    if any(k in clean for k in ["hai phong", "haiphong"]):
+        return "hai-phong"
+    if any(k in clean for k in ["vung tau", "vungtau"]):
+        return "vung-tau"
+    if any(k in clean for k in ["quang ninh"]):
+        return "quang-ninh"
+    if any(k in clean for k in ["khanh hoa", "nha trang"]):
+        return "khanh-hoa"
+    if any(k in clean for k in ["bac ninh"]):
+        return "bac-ninh"
+    if any(k in clean for k in ["binh thuan", "phan thiet"]):
+        return "binh-thuan"
+    if any(k in clean for k in ["nghe an", "vinh"]):
+        return "nghe-an"
+    if any(k in clean for k in ["hue", "thua thien"]):
+        return "thua-thien-hue"
+
+    return clean.replace(" ", "-")
+
+def infer_region(city_slug: str) -> str:
+    north = {"ha-noi", "hai-phong", "quang-ninh", "bac-ninh", "thai-nguyen", "nam-dinh", "ninh-binh"}
+    south = {"ho-chi-minh", "can-tho", "vung-tau", "binh-duong", "dong-nai", "an-giang"}
+    central = {"da-nang", "thua-thien-hue", "khanh-hoa", "nha-trang", "quang-nam", "nghe-an", "ha-tinh", "binh-thuan"}
+
+    if city_slug in north:
+        return "Bac"
+    if city_slug in south:
+        return "Nam"
+    if city_slug in central:
+        return "Trung"
+    return "Khac"
+
+# ---------------------------------------------------------
+# 3. CHUẨN HÓA RECORD RAW THEO TARGET SCHEMA
+# ---------------------------------------------------------
+def normalize_record(rec: dict) -> dict:
+    raw_shop_id = rec.get("ID Quán") or rec.get("shop_id") or ""
+    shop_id, shop_name = split_shop_id(raw_shop_id)
+
+    if rec.get("shop_name"):
+        shop_name = rec.get("shop_name")
+
+    url = rec.get("URL Quán") or rec.get("url") or rec.get("shop_url") or ""
+    source_platform = infer_platform(url)
+
+    comment_text = str(rec.get("Bình Luận") or rec.get("comment") or rec.get("comment_text") or "")
+    dt_raw = str(rec.get("Ngày Giờ") or rec.get("datetime") or rec.get("comment_datetime") or "")
+
+    comment_dt = pd.NaT
+    for fmt in ("%d/%m/%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            comment_dt = datetime.strptime(dt_raw, fmt)
+            break
+        except (ValueError, TypeError):
             continue
-        response = client.get_object(bucket, obj.object_name)
-        try:
-            data = json.loads(response.read().decode("utf-8-sig"))
-            rows = [data] if isinstance(data, dict) else data
-            if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
-                raise ValueError(f"{obj.object_name}: JSON phải chứa object hoặc mảng object")
-            records.extend(rows)
-        finally:
-            response.close()
-            response.release_conn()
-    return records
 
+    user_name = str(rec.get("Tên User") or rec.get("user_name") or rec.get("user_pseudo_id") or "Anonymous")
+    
+    # Chuẩn hóa tên thành phố và gán phân vùng chuẩn xác
+    raw_city = str(rec.get("Thành Phố") or rec.get("city") or "Unknown")
+    city_val = standardize_city_name(raw_city)
+    region_val = infer_region(city_val)
 
-def optional_text(value):
-    if value is None or pd.isna(value):
-        return None
-    return str(value).strip() or None
-
-
-def parse_integer(value, minimum=0, maximum=2**31 - 1):
-    """Parse without a float intermediary, preserving all BIGINT digits."""
-    try:
-        if isinstance(value, bool):
-            return None
-        number = Decimal(str(value).strip())
-        if not number.is_finite() or number != number.to_integral_value():
-            return None
-        return int(number) if minimum <= number <= maximum else None
-    except (InvalidOperation, ValueError, TypeError):
-        return None
-
-
-def parse_score(value):
-    try:
-        number = float(str(value).strip().replace(",", "."))
-        return number if 0 <= number <= 10 else None
-    except (TypeError, ValueError):
-        return None
-
-
-def parse_time(value):
-    value = optional_text(value)
-    if value == "24:00":
-        value = "00:00"
-    for fmt in ("%H:%M", "%H:%M:%S"):
-        try:
-            return datetime.strptime(value, fmt).time()
-        except (ValueError, TypeError):
-            pass
-    return None
-
-
-def parse_datetime(value):
-    value = optional_text(value)
-    # Older crawler exports include a trailing comma after timestamps.
-    if value:
-        value = value.rstrip(", ")
-    for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y %H:%M:%S"):
-        try:
-            return datetime.strptime(value, fmt)
-        except (ValueError, TypeError):
-            pass
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if parsed.tzinfo is not None:
-            parsed = parsed.astimezone(VIETNAM_TIME).replace(tzinfo=None)
-        return parsed
-    except (ValueError, TypeError, AttributeError):
-        return None
-
-
-def infer_platform(url):
-    host = urlparse(url or "").hostname or ""
-    for domain, name in (("foody.vn", "Foody"), ("shopeefood.vn", "ShopeeFood")):
-        if host == domain or host.endswith("." + domain):
-            return name
-    return "Unknown"
-
-
-def infer_region(city):
-    normalized = unicodedata.normalize("NFD", city or "").lower().replace("đ", "d")
-    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
-    normalized = re.sub(r"[\s_]+", "-", normalized.strip())
-    regions = {
-        "Bac": "ha-noi hai-phong quang-ninh bac-ninh bac-giang hai-duong hung-yen ha-nam nam-dinh ninh-binh thai-binh vinh-phuc phu-tho thai-nguyen bac-kan cao-bang lang-son tuyen-quang ha-giang lao-cai yen-bai son-la dien-bien lai-chau hoa-binh",
-        "Trung": "thanh-hoa nghe-an ha-tinh quang-binh quang-tri hue thua-thien-hue da-nang quang-nam quang-ngai binh-dinh phu-yen khanh-hoa ninh-thuan binh-thuan kon-tum gia-lai dak-lak dak-nong lam-dong",
-        "Nam": "ho-chi-minh tp-ho-chi-minh sai-gon saigon hcm can-tho vung-tau ba-ria-vung-tau binh-duong binh-phuoc dong-nai tay-ninh long-an tien-giang ben-tre tra-vinh vinh-long dong-thap an-giang kien-giang hau-giang soc-trang bac-lieu ca-mau",
+    return {
+        "review_id": make_review_id(rec, shop_id, user_name, dt_raw),
+        "shop_id": shop_id,
+        "shop_name": shop_name,
+        "city": city_val,
+        "region": region_val,
+        "user_name": user_name,
+        "rating": pd.to_numeric(rec.get("rating") or rec.get("Điểm Đánh Giá"), errors="coerce"),
+        
+        # Ánh xạ thuộc tính cào sâu linh hoạt (bắt cả key mới và key cũ)
+        "review_photo_count": pd.to_numeric(rec.get("num_photos") or rec.get("Số Ảnh Bình Luận"), errors="coerce"),
+        "shop_position_rating": pd.to_numeric(rec.get("location_score") or rec.get("Điểm Vị Trí"), errors="coerce"),
+        "shop_price_rating": pd.to_numeric(rec.get("price_score") or rec.get("Điểm Giá Cả"), errors="coerce"),
+        "shop_quality_rating": pd.to_numeric(rec.get("quality_score") or rec.get("Điểm Chất Lượng"), errors="coerce"),
+        "shop_service_rating": pd.to_numeric(rec.get("service_score") or rec.get("Điểm Phục Vụ"), errors="coerce"),
+        "shop_atmosphere_rating": pd.to_numeric(rec.get("space_score") or rec.get("Điểm Không Gian"), errors="coerce"),
+        "shop_foody_avg_rating": pd.to_numeric(rec.get("shop_avg_rating") or rec.get("Điểm Trung Bình Quán"), errors="coerce"),
+        
+        "opening_time": rec.get("opening_hour") or rec.get("Giờ Mở Cửa"),
+        "closing_time": rec.get("closing_hour") or rec.get("Giờ Đóng Cửa"),
+        
+        "min_price_vnd": pd.to_numeric(rec.get("price_min") or rec.get("Giá Thấp Nhất"), errors="coerce"),
+        "max_price_vnd": pd.to_numeric(rec.get("price_max") or rec.get("Giá Cao Nhất"), errors="coerce"),
+        "view_count": pd.to_numeric(rec.get("views") or rec.get("Lượt Xem"), errors="coerce"),
+        
+        "shop_total_review_count": pd.to_numeric(rec.get("shop_review_count") or rec.get("Tổng Số Bình Luận"), errors="coerce"),
+        "shop_excellent_review_count": pd.to_numeric(rec.get("excellent_count") or rec.get("Số Bình Luận Tuyệt Vời"), errors="coerce"),
+        "shop_good_review_count": pd.to_numeric(rec.get("good_count") or rec.get("Số Bình Luận Khá Tốt"), errors="coerce"),
+        "shop_average_review_count": pd.to_numeric(rec.get("average_count") or rec.get("Số Bình Luận Trung Bình"), errors="coerce"),
+        "shop_bad_review_count": pd.to_numeric(rec.get("poor_count") or rec.get("Số Bình Luận Kém"), errors="coerce"),
+        
+        "device": str(rec.get("device") or rec.get("Thiết Bị") or "Unknown"),
+        "comment_datetime": comment_dt,
+        "comment_hour": comment_dt.hour if pd.notna(comment_dt) else -1,
+        "day_of_week": comment_dt.strftime("%A") if pd.notna(comment_dt) else "Unknown",
+        "comment_text": comment_text,
+        "comment_length_words": len(comment_text.split()),
+        "comment_length_chars": len(comment_text),
+        "emoji_count": count_emoji(comment_text),
+        "teencode_score": None,
+        "spelling_error_rate": None,
+        "num_reviews_by_user": None,
+        "label_source": "human",
+        "source_platform": source_platform,
+        "crawl_timestamp": datetime.now(timezone.utc),
     }
     for region, cities in regions.items():
         if normalized in cities.split():
             return region
     return None
 
+# ---------------------------------------------------------
+# 4. PIPELINE CHÍNH: RAW -> DEDUP -> FILLNA -> DATAFRAME
+# ---------------------------------------------------------
+def build_clean_dataframe(bucket: str = "foody-raw-data") -> pd.DataFrame:
+    raw_records = load_raw_records_from_minio(bucket)
+    if not raw_records:
+        print("Không tìm thấy dữ liệu từ MinIO!")
+        return pd.DataFrame()
 
-def normalize_record(rec: dict, timestamp=None) -> dict:
-    unknown = set(rec) - set(RAW_FIELD_MAP)
-    if unknown:
-        raise ValueError("Unmapped crawl fields: " + ", ".join(sorted(unknown)))
-    timestamp = timestamp or datetime.now(VIETNAM_TIME).replace(tzinfo=None)
-    shop_id = optional_text(rec.get("ID Quán"))
-    city = optional_text(rec.get("Thành Phố"))
-    user_name = rec.get("Tên User")
-    if not shop_id or not city or not isinstance(user_name, str) or not user_name.strip():
-        raise ValueError("Thiếu slug quán, thành phố hoặc tên user")
-    rating = parse_score(rec.get("Điểm Đánh Giá"))
-    comment_dt = parse_datetime(rec.get("Ngày Giờ"))
-    comment_text = rec.get("Bình Luận")
-    if rating is None or comment_dt is None or not isinstance(comment_text, str):
-        raise ValueError("Thiếu/sai rating, ngày giờ hoặc bình luận")
-    source_raw = rec.get("ID Bình Luận")
-    source_id = parse_integer(source_raw, 1, BIGINT_MAX) if source_raw is not None else None
-    if source_raw not in (None, "") and source_id is None:
-        raise ValueError("ID Bình Luận không phải BIGINT dương")
-    result = dict.fromkeys(FLAT_COLUMNS)
-    result.update(
-        source_review_id=source_id, shop_id=shop_id,
-        shop_name=optional_text(rec.get("Tên Quán")) or shop_id.replace("-", " ").title(),
-        city=city, region=infer_region(city), shop_url=optional_text(rec.get("URL Quán")),
-        user_name=user_name, user_pseudo_id=user_name.strip().lower(), first_seen_at=timestamp,
-        rating=rating, comment_datetime=comment_dt, comment_text=comment_text,
-        device=optional_text(rec.get("Thiết Bị")), source_platform=infer_platform(rec.get("URL Quán")),
-        crawled_at=timestamp, last_crawled_at=timestamp,
+    print(f"Đã đọc {len(raw_records):,} bản ghi thô. Đang chuẩn hóa...")
+    normalized = [normalize_record(r) for r in raw_records]
+    df = pd.DataFrame(normalized)
+
+    before = len(df)
+    df = df.drop_duplicates(subset="review_id", keep="last")
+    print(f"Đã loại bỏ {before - len(df):,} bản ghi trùng lặp. Còn lại {len(df):,} unique reviews.")
+
+    df["num_reviews_by_user"] = df.groupby("user_name")["review_id"].transform("count")
+
+    shop_stats = (
+        df.groupby("shop_id")["rating"]
+        .agg(shop_review_count="count", shop_avg_rating="mean")
+        .reset_index()
     )
     if result["source_platform"] == "Unknown":
         raise ValueError("URL Quán không thuộc Foody/ShopeeFood")
@@ -195,108 +270,15 @@ def normalize_record(rec: dict, timestamp=None) -> dict:
         raise ValueError("Giá Cao Nhất nhỏ hơn Giá Thấp Nhất")
     return result
 
+    df["rating"] = df["rating"].fillna(df["rating"].median())
+    df["device"] = df["device"].fillna("Unknown")
+    df["city"] = df["city"].fillna("Unknown")
+    df["comment_text"] = df["comment_text"].fillna("")
+    df["comment_hour"] = df["comment_hour"].fillna(-1).astype(int)
+    df["day_of_week"] = df["day_of_week"].fillna("Unknown")
 
-def deduplicate_records(records):
-    """IDs win; natural keys deduplicate unidentified rows only.
-
-    A no-ID record matching exactly one native ID is the same review. Ambiguous
-    matches to multiple IDs remain separate rather than guessing an identity.
-    """
-    native, unidentified = {}, {}
-    for row in records:
-        key = row["source_review_id"]
-        target = native if key is not None else unidentified
-        key = key if key is not None else tuple(row[c] for c in NATURAL_KEY)
-        if key in target:
-            # Missing optional fields in older crawls must not erase richer data.
-            target[key] = {c: row[c] if row[c] is not None else target[key][c] for c in FLAT_COLUMNS}
-        else:
-            target[key] = row.copy()
-    matches = {}
-    for sid, row in native.items():
-        matches.setdefault(tuple(row[c] for c in NATURAL_KEY), []).append(sid)
-    for key, row in list(unidentified.items()):
-        ids = matches.get(key, [])
-        if len(ids) == 1:
-            current = native[ids[0]]
-            native[ids[0]] = {c: current[c] if current[c] is not None else row[c] for c in FLAT_COLUMNS}
-            del unidentified[key]
-    return list(native.values()) + list(unidentified.values())
-
-
-def build_dataframe(raw_records: list[dict], rejected=None) -> pd.DataFrame:
-    timestamp = datetime.now(VIETNAM_TIME).replace(tzinfo=None)
-    normalized, errors = [], rejected if rejected is not None else []
-    for number, record in enumerate(raw_records, 1):
-        try:
-            normalized.append(normalize_record(record, timestamp))
-        except ValueError as error:
-            errors.append({"record_number": number, "reason": str(error), "raw_record": record})
-    if raw_records and not normalized:
-        raise ValueError("Không có record hợp lệ; kiểm tra report record bị cách ly")
-    frame = pd.DataFrame(normalized, columns=FLAT_COLUMNS, dtype=object)
-    if frame.empty:
-        return frame
-    shops = frame.loc[:, list(SHOP_COLUMNS)].groupby("shop_id", sort=False).last().reset_index()
-    frame = pd.DataFrame(deduplicate_records(normalized), columns=FLAT_COLUMNS, dtype=object)
-    frame = frame.drop(columns=list(SHOP_COLUMNS[1:])).merge(shops, on="shop_id", how="left")
-    return frame.loc[:, list(FLAT_COLUMNS)]
-
-
-def build_clean_dataframe(bucket, rejected=None) -> pd.DataFrame:
-    return build_dataframe(load_raw_records_from_minio(bucket), rejected)
-
-
-def save_json(path, records):
-    from datetime import date, time
-    def encode(value):
-        if isinstance(value, (datetime, date, time)):
-            return value.isoformat()
-        raise TypeError(type(value).__name__)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(records, ensure_ascii=False, indent=2, default=encode), encoding="utf-8")
-    temporary.replace(path)
-
-
-def load_clean_dataframe(path):
-    from datetime import time
-    rows = json.loads(Path(path).read_text(encoding="utf-8-sig"))
-    if not isinstance(rows, list):
-        raise ValueError("Clean JSON phải chứa mảng records")
-    for row in rows:
-        if set(row) != set(FLAT_COLUMNS):
-            raise ValueError("Clean JSON không khớp schema pre-EDA; chạy lại basic_pipeline")
-        for column in ("opening_hour", "closing_hour"):
-            if row[column] is not None:
-                row[column] = time.fromisoformat(row[column])
-        for column in ("comment_datetime", "crawled_at", "last_crawled_at", "first_seen_at"):
-            row[column] = datetime.fromisoformat(row[column])
-    return pd.DataFrame(rows, columns=FLAT_COLUMNS, dtype=object)
-
-
-def main():
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="MinIO → lọc sạch pre-EDA → JSON")
-    parser.add_argument("--bucket", default=os.getenv("MINIO_RAW_BUCKET", "foody-raw-data"))
-    parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "data/processed/foody_clean.json")
-    args = parser.parse_args()
-    print(f"Đọc JSON từ MinIO bucket {args.bucket}...", flush=True)
-    raw = load_raw_records_from_minio(args.bucket)
-    print(f"Chuẩn hóa và lọc trùng {len(raw):,} record...", flush=True)
-    rejected = []
-    report = PROJECT_ROOT / "outputs/pre_eda_rejected.json"
-    try:
-        frame = build_dataframe(raw, rejected)
-    finally:
-        save_json(report, rejected)
-    # pandas missing values must become JSON null, never NaN.
-    rows = [{k: None if pd.isna(v) else v for k, v in row.items()} for row in frame.to_dict("records")]
-    save_json(args.output, rows)
-    print(f"Đã lưu {len(frame):,} review sạch: {args.output}", flush=True)
-    print(f"Cách ly {len(rejected):,} record lỗi: {report}", flush=True)
-
+    return df
 
 if __name__ == "__main__":
-    main()
+    final_df = build_clean_dataframe("foody-raw-data")
+    print(f"\nDataFrame kích thước: {final_df.shape}")

@@ -25,6 +25,9 @@ services:
       - "5432:5432"
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+    command: postgres -c timezone=Asia/Ho_Chi_Minh
     volumes:
       - ./docker/db/pg_data:/var/lib/postgresql/data
     restart: unless-stopped
