@@ -1,21 +1,30 @@
-# Local datasets and generated pipeline output
+# ==========================================
+# 1. DỮ LIỆU, DATASETS & OUTPUTS CỦA PIPELINE
+# ==========================================
 /data/
 /outputs/
 /artifacts/
+/logs/
+*.csv
 foody_*_dataset.json
-reviews_clean.csv
-/src/ingestion/foody/extended/
-/src/ingestion/foody/chrome_profile/
+gmap.json
+data_*.json
 
-# Docker bind mounts: database and object-storage data
+# ==========================================
+# 2. DOCKER VOLUMES & DATABASE DATA
+# ==========================================
 /docker/db/pg_data/
 /docker/minio_data/
 
-# Local secrets (keep sanitized examples versioned)
+# ==========================================
+# 3. BIẾN MÔI TRƯỜNG & SECRETS
+# ==========================================
 .env
 .env.*
 
-# Python bytecode, virtual environments, and tool caches
+# ==========================================
+# 4. PYTHON, VENV & TOOL CACHES
+# ==========================================
 __pycache__/
 *.py[cod]
 .venv/
@@ -29,14 +38,18 @@ env/
 htmlcov/
 *.egg-info/
 
-# Notebook checkpoints and runtime logs
+# ==========================================
+# 5. NOTEBOOKS & LOGS
+# ==========================================
 .ipynb_checkpoints/
-/logs/
 *.log
 
-# Operating-system temporary files
+# ==========================================
+# 6. SCRAPER PROFILES & FILE TẠM (OS)
+# ==========================================
+**/chrome_profile/
+/src/ingestion/foody/extended/
 .DS_Store
 Thumbs.db
 *.tmp
-
-**/chrome_profile/
+*.temp

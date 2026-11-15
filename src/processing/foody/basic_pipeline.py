@@ -4,12 +4,12 @@ Run from the project root: python -m src.processing.foody.basic_pipeline.
 The database loader splits this frame into the three normalized tables.
 """
 
+import argparse
 import json
 import os
 import re
-import unicodedata
-import argparse
 import sys
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
