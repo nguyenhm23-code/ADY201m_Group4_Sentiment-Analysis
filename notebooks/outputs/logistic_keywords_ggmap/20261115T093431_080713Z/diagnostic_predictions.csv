@@ -1,0 +1,6 @@
+﻿review,text_norm,active_features,bias,sum_contributions,logit,p_low_model,predicted_is_low
+Nhân viên thiếu tôn trọng khách.,nhân viên thiếu tôn trọng khách.,14,-1.2028240211117927,6.153025155775203,4.95020113466341,0.9929678174535115,1
+Không hề có chuyện nhân viên thiếu tôn trọng khách.,không hề có chuyện nhân viên thiếu tôn trọng khách.,24,-1.2028240211117927,7.673089950764531,6.470265929652738,0.9984535813119679,1
+Đồ ăn ngon nhưng nhân viên thiếu tôn trọng khách.,đồ ăn ngon nhưng nhân viên thiếu tôn trọng khách.,26,-1.2028240211117927,2.853883899847834,1.6510598787360415,0.83903424461516,1
+Phục vụ chậm.,phục vụ chậm.,6,-1.2028240211117927,3.915742100531364,2.7129180794195715,0.9377846205277051,1
+Phục vụ không chậm.,phục vụ không chậm.,7,-1.2028240211117927,6.5352356549937864,5.332411633881994,0.9951908378405986,1

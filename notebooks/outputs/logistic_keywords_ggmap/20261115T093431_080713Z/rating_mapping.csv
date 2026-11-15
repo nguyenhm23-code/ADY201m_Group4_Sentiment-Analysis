@@ -1,0 +1,7 @@
+﻿rating_original,n_reviews,rating_scaled,is_low_by_rule
+1.0,14784,2.0,True
+2.0,4777,4.0,True
+3.0,11096,6.0,False
+4.0,26042,8.0,False
+5.0,89856,10.0,False
+,1010,,False

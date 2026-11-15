@@ -1,0 +1,44 @@
+{
+  "platform": "Google Maps",
+  "run_dir": "D:\\FPT\\ADY291m\\project\\notebooks\\outputs\\logistic_keywords_ggmap\\20261115T093431_080713Z",
+  "source_rows": 147565,
+  "working_rows": 130270,
+  "low_count": 18206,
+  "low_pct": 13.975589160973362,
+  "selected_C": 10.0,
+  "feature_count": 100000,
+  "candidate_count": 8062,
+  "candidate_lift_ge_2_count": 5228,
+  "test_confusion_matrix": [
+    [
+      21528,
+      888
+    ],
+    [
+      443,
+      3165
+    ]
+  ],
+  "test_zero_features": 7,
+  "source_sha256": "41bf02e9a65867aead620c0c8373f28b4fc1806ae687ed50de91df526f65265e",
+  "model_test_metrics": {
+    "model": "TF-IDF + Logistic Regression",
+    "accuracy": 0.948854903166308,
+    "macro_f1": 0.8981383163623332,
+    "precision_low": 0.7809030347890451,
+    "recall_low": 0.8772172949002217,
+    "f1_low": 0.8262628899621459,
+    "roc_auc": 0.9751581068954549,
+    "average_precision_low": 0.8963646510971932
+  },
+  "dummy_test_metrics": {
+    "model": "Dummy: lớp phổ biến",
+    "accuracy": 0.8613587457731325,
+    "macro_f1": 0.4627580511973576,
+    "precision_low": 0.0,
+    "recall_low": 0.0,
+    "f1_low": 0.0,
+    "roc_auc": 0.5,
+    "average_precision_low": 0.13864125422686752
+  }
+}

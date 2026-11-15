@@ -1,0 +1,10 @@
+﻿item,Số review
+Dòng nguồn,147565
+"Thiếu khóa lọc trùng, được giữ ở bước dedup",16544
+Dòng trùng bị loại,669
+Dòng sau dedup,146896
+"Dòng rỗng text hoặc rating không hợp lệ, sau dedup",16544
+Rating 0 trong corpus hợp lệ,0
+Comment 0 token trong corpus hợp lệ,82
+Đồng thời rating 0 và 0 token,0
+Dòng cuối cùng,130270
